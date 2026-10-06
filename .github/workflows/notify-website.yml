@@ -1,0 +1,57 @@
+name: Notify website
+
+# When a release is published here, tell the website repository so it can update its version, download link and
+# installer size (its update-release workflow listens for the "release-published" dispatch event).
+# Drafts do not trigger this; publishing the draft does. Run it by hand to resend for a tag.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to send to the website, for example v1.1.0'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send release-published to the website repository
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          READ_TOKEN: ${{ github.token }}
+          WEBSITE_REPO: ${{ vars.CAPTIO_WEBSITE_REPO }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          [ -n "${GH_TOKEN:-}" ] || { echo "::error::The secret RELEASE_REPO_TOKEN is not set in this repository."; exit 1; }
+          [ -n "${WEBSITE_REPO:-}" ] || { echo "::error::The variable CAPTIO_WEBSITE_REPO is not set (for example RehakNet/captio-web)."; exit 1; }
+
+          # Read the published release from this repository.
+          release=$(GH_TOKEN="$READ_TOKEN" gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
+          [ "$(jq -r '.draft' <<<"$release")" = "false" ] || { echo "::error::$TAG is still a draft."; exit 1; }
+
+          version="${TAG#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Tag $TAG is not vX.Y.Z."; exit 1; }
+
+          asset=$(jq -c '[.assets[] | select(.name | test("\\.msi$"))] | first // empty' <<<"$release")
+          [ -n "$asset" ] || { echo "::error::Release $TAG has no .msi asset."; exit 1; }
+          url=$(jq -r '.browser_download_url' <<<"$asset")
+          bytes=$(jq -r '.size' <<<"$asset")
+          size_mb=$(( (bytes + 524288) / 1048576 ))
+          case "$url" in
+            "https://github.com/${GITHUB_REPOSITORY}/releases/"*) ;;
+            *) echo "::error::Unexpected download URL: $url"; exit 1 ;;
+          esac
+
+          echo "Sending version=$version size=${size_mb} MB url=$url to the website repository"
+          gh api "repos/${WEBSITE_REPO}/dispatches" --method POST \
+            -f event_type=release-published \
+            -f "client_payload[version]=$version" \
+            -f "client_payload[downloadUrl]=$url" \
+            -F "client_payload[installerSizeMb]=$size_mb"
+          echo "Sent. The website repository's update-release workflow takes it from here."
