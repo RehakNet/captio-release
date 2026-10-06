@@ -22,13 +22,13 @@ jobs:
     steps:
       - name: Send release-published to the website repository
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.WEBSITE_REPO_TOKEN }}
           READ_TOKEN: ${{ github.token }}
           WEBSITE_REPO: ${{ vars.CAPTIO_WEBSITE_REPO }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           set -euo pipefail
-          [ -n "${GH_TOKEN:-}" ] || { echo "::error::The secret RELEASE_REPO_TOKEN is not set in this repository."; exit 1; }
+          [ -n "${GH_TOKEN:-}" ] || { echo "::error::The secret WEBSITE_REPO_TOKEN is not set in this repository."; exit 1; }
           [ -n "${WEBSITE_REPO:-}" ] || { echo "::error::The variable CAPTIO_WEBSITE_REPO is not set (for example RehakNet/captio-web)."; exit 1; }
 
           # Read the published release from this repository.
